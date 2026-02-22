@@ -1,4 +1,4 @@
-use crate::models::call::{Call, Status};
+use crate::models::{call::{Call, Status}, user::User};
 use matrix_sdk::{
     Room, RoomState,
     ruma::events::room::message::{
@@ -22,6 +22,17 @@ pub async fn listen(event: OriginalSyncRoomMessageEvent, room: Room, db: &Surrea
 
     if !message.starts_with("!") {
         return;
+    }
+
+    let user = match User::fetch_from_address(db, author_id.clone()).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            let user = User::new(author_id, )
+        }
+        Err(err) => {
+            error!("Failed to fetch user from database: {}", err);
+            return;
+        }
     }
 
     let call = match Call::fetch_event(db, event_id).await {
