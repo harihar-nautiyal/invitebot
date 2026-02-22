@@ -3,6 +3,7 @@ use crate::models::room::Room;
 use anyhow::Result;
 use anyhow::anyhow;
 use matrix_sdk::{Room as MatrixRoom, RoomMemberships};
+use nanoid::nanoid;
 use surrealdb::types::{Datetime, RecordId, Uuid};
 use surrealdb::{Surreal, engine::remote::ws::Client};
 use tracing::error;
@@ -16,7 +17,7 @@ impl Room {
         description: String,
     ) -> Self {
         Self {
-            id: RecordId::new("rooms", Uuid::new_v7()),
+            id: RecordId::new("rooms", nanoid!()),
             address,
             founder,
             members,
@@ -37,7 +38,7 @@ impl Room {
     }
 
     pub async fn insert(&self, db: &Surreal<Client>) -> Result<()> {
-        db.query("CREATE rooms $room")
+        db.query("CREATE rooms CONTENT $room")
             .bind(("room", self.clone()))
             .await?;
 

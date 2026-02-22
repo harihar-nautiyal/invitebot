@@ -1,13 +1,13 @@
 use crate::models::user::User;
 use anyhow::Result;
-use surrealdb::types::Uuid;
+use nanoid::nanoid;
 use surrealdb::types::{Datetime, RecordId};
 use surrealdb::{Surreal, engine::remote::ws::Client};
 
 impl User {
     pub fn new(address: String, display_name: Option<String>, room: RecordId) -> Self {
         Self {
-            id: RecordId::new("users", Uuid::new_v7()),
+            id: RecordId::new("users", nanoid!()),
             address,
             display_name,
             rooms: vec![room],

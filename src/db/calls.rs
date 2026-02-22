@@ -1,13 +1,13 @@
 use crate::models::call::{Call, Status};
 use anyhow::Result;
-use surrealdb::types::Uuid;
-use surrealdb::types::{Datetime, RecordId};
+use nanoid::nanoid;
+use surrealdb::types::{Datetime, RecordId, Uuid};
 use surrealdb::{Surreal, engine::remote::ws::Client};
 
 impl Call {
     pub fn new(event_id: String, user: RecordId, room: RecordId, command: String) -> Self {
         Self {
-            id: RecordId::new("calls", Uuid::new_v7()),
+            id: RecordId::new("calls", nanoid!()),
             user,
             room,
             event_id,

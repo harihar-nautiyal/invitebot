@@ -1,11 +1,12 @@
 use crate::models::member::Member;
 use anyhow::Result;
+use nanoid::nanoid;
 use surrealdb::types::{Datetime, RecordId, Uuid};
 use surrealdb::{Surreal, engine::remote::ws::Client};
 impl Member {
     pub fn new(address: String, display_name: Option<String>) -> Self {
         Self {
-            id: RecordId::new("members", Uuid::new_v7()),
+            id: RecordId::new("members", nanoid!()),
             address,
             display_name,
             created_at: Datetime::now(),
