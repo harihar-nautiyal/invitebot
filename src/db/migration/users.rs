@@ -7,7 +7,7 @@ pub static USERS: Lazy<String> = Lazy::new(|| {
         DEFINE FIELD display_name ON TABLE users TYPE option<string>;
         DEFINE FIELD rooms ON TABLE users TYPE array<record<rooms>>;
         DEFINE FIELD created_at ON TABLE users TYPE datetime;
-        DEFINE FIELD updated_at ON TABLE users TYPE datetime;
+        DEFINE FIELD updated_at ON TABLE users TYPE datetime VALUE time::now();
         DEFINE INDEX users_address_unique ON TABLE users COLUMNS address UNIQUE;
 "#
     .to_string()

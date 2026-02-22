@@ -6,9 +6,13 @@ use invitebot::handlers::message::listen as message_listener;
 use matrix_sdk::Client;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::UserId;
+use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
+use matrix_sdk::{Room, ruma::events::room::member::StrippedRoomMemberEvent};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
+use tracing::error;
 use tracing::info;
 use tracing::subscriber::set_global_default;
 use tracing_subscriber::EnvFilter;
@@ -35,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Connecting to Database");
 
-    let db = Surreal::new::<Ws>(DB_URL.as_str()).await?;
+    let db = Arc::new(Surreal::new::<Ws>(DB_URL.as_str()).await?);
 
     db.signin(Root {
         username: DB_USERNAME.to_string(),
@@ -62,10 +66,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Logging as {}", user);
 
-    let client = Client::builder()
-        .server_name(user.server_name())
-        .build()
-        .await?;
+    let client = Arc::new(
+        Client::builder()
+            .server_name(user.server_name())
+            .build()
+            .await?,
+    );
 
     client
         .matrix_auth()
@@ -75,10 +81,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Successfully logged in as {}", user);
 
-    client.add_event_handler(invite_listener);
+    let client_clone_for_invites = client.clone();
+    let db_clone_for_invites = db.clone();
+
+    client.add_event_handler(async move |ev: StrippedRoomMemberEvent, room: Room| {
+        if let Err(err) = invite_listener(
+            ev,
+            client_clone_for_invites.clone(),
+            room,
+            db_clone_for_invites.clone(),
+        )
+        .await
+        {
+            error!("Error handling invite: {}", err);
+        }
+    });
+
     info!("Listening for invites");
 
-    client.add_event_handler(message_listener);
+    let db_clone_for_messages = db.clone();
+
+    client.add_event_handler(async move |ev: OriginalSyncRoomMessageEvent, room: Room| {
+        if let Err(err) = message_listener(ev, room, &db_clone_for_messages).await {
+            error!("Error handling message: {}", err);
+        }
+    });
+
     info!("Listening for commands");
 
     client.sync(SyncSettings::default()).await?;

@@ -6,7 +6,7 @@ pub static INVITES: Lazy<String> = Lazy::new(|| {
         DEFINE FIELD sent_to ON TABLE invites TYPE record<member>;
         DEFINE FIELD room ON TABLE invites TYPE string;
         DEFINE FIELD created_at ON TABLE invites TYPE datetime;
-        DEFINE FIELD updated_at ON TABLE invites TYPE datetime;
+        DEFINE FIELD updated_at ON TABLE invites TYPE datetime VALUE time::now();
 "#
     .to_string()
 });

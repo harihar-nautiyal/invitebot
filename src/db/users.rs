@@ -5,7 +5,7 @@ use surrealdb::types::{Datetime, RecordId};
 use surrealdb::{Surreal, engine::remote::ws::Client};
 
 impl User {
-    pub async fn new(address: String, display_name: Option<String>, room: RecordId) -> Self {
+    pub fn new(address: String, display_name: Option<String>, room: RecordId) -> Self {
         Self {
             id: RecordId::new("users", Uuid::new_v7()),
             address,

@@ -1,14 +1,18 @@
+use crate::models::room::Room as RoomRecord;
+use anyhow::Result;
 use matrix_sdk::{Client, Room, ruma::events::room::member::StrippedRoomMemberEvent};
-use surrealdb::{Surreal, engine::remote::ws::Client};
+use std::sync::Arc;
+use surrealdb::{Surreal, engine::remote::ws::Client as SurrealClient};
+use surrealdb_types::ToSql;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info};
 
 pub async fn listen(
     room_member: StrippedRoomMemberEvent,
-    client: Client,
+    client: Arc<Client>,
     room: Room,
-    db: &Surreal<Client>,
-) {
+    db: Arc<Surreal<SurrealClient>>,
+) -> Result<()> {
     info!(
         "Invite received for room {} from {}",
         room.room_id(),
@@ -16,8 +20,10 @@ pub async fn listen(
     );
 
     if room_member.state_key != client.user_id().unwrap() {
-        return;
+        return Ok(());
     }
+
+    let room = room.clone();
 
     tokio::spawn(async move {
         info!("Autojoining room {}", room.room_id());
@@ -38,6 +44,36 @@ pub async fn listen(
             }
         }
 
-        info!("Successfully joined room {}", room.room_id());
+        let room_address = room.room_id().to_string();
+
+        let room_id = match RoomRecord::fetch_id(&db, &room_address).await {
+            Ok(Some(id)) => id,
+            Ok(None) => match RoomRecord::insert_from_matrix(room, &db).await {
+                Ok(room) => room.id,
+                Err(err) => {
+                    error!(
+                        "Failed to insert room record for room {} ({err:?})",
+                        room_address
+                    );
+                    return;
+                }
+            },
+            Err(err) => {
+                error!(
+                    "Failed to fetch room record for room {} ({err:?})",
+                    room.room_id()
+                );
+
+                return;
+            }
+        };
+
+        info!(
+            "Successfully joined room {}, id: {}",
+            room_address,
+            room_id.to_sql()
+        );
     });
+
+    Ok(())
 }
