@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    ports:
+      - "8000:8000"
+    command: start --user ${SURREALDB_USER:-root} --pass ${SURREALDB_PASS:-root} memory
+    volumes:
+      - surrealdb-data:/mydata
+    healthcheck:
+      test: ["CMD", "surreal", "version"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  invitebot:
+    build: .
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+    environment:
+      SURREALDB_URL: ws://surrealdb:8000
+      SURREALDB_USER: ${SURREALDB_USER:-root}
+      SURREALDB_PASS: ${SURREALDB_PASS:-root}
+      SERVER: ${SERVER:-localhost}
+      USERNAME: ${USERNAME:-user}
+      PASSWORD: ${PASSWORD:-password}
+    # volumes:
+    #   - .:/app  # Mount code for hot-reloading in dev (optional)
+
+volumes:
+  surrealdb-data:
