@@ -3,7 +3,7 @@ use surrealdb::types::{Datetime, RecordId, SurrealValue};
 
 #[derive(Serialize, Deserialize, SurrealValue, Clone)]
 pub struct User {
-    pub id: RecordId,
+    pub id: Option<RecordId>,
     pub address: String,
     pub display_name: Option<String>,
     pub rooms: Vec<RecordId>,

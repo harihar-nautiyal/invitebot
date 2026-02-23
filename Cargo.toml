@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 dotenv = "0.15.0"
-matrix-sdk = { version = "0.16.0", default-features = false, features = ["anyhow", "e2e-encryption", "rustls-tls"] }
+futures = "0.3.32"
+matrix-sdk = { version = "0.16.0", default-features = false, features = ["anyhow", "e2e-encryption", "rustls-tls", "sqlite"] }
 nanoid = "0.4.0"
 once_cell = "1.21.3"
 serde = { version = "1.0.228", features = ["derive"] }

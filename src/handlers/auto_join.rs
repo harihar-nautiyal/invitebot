@@ -5,6 +5,7 @@ use std::sync::Arc;
 use surrealdb::{Surreal, engine::remote::ws::Client as SurrealClient};
 use surrealdb_types::ToSql;
 use tokio::time::{Duration, sleep};
+use tracing::Instrument;
 use tracing::{error, info};
 
 pub async fn listen(
@@ -25,55 +26,51 @@ pub async fn listen(
 
     let room = room.clone();
 
-    tokio::spawn(async move {
-        info!("Autojoining room {}", room.room_id());
-        let mut delay = 2;
-
-        while let Err(err) = room.join().await {
-            error!(
-                "Failed to join room {} ({err:?}), retrying in {delay}s",
-                room.room_id()
-            );
-
-            sleep(Duration::from_secs(delay)).await;
-            delay *= 2;
-
-            if delay > 3600 {
-                error!("Can't join room {} ({err:?})", room.room_id());
-                break;
+    tokio::spawn(
+        async move {
+            if let Err(err) = handle_auto_join(db, &room).await {
+                error!("Auto-join handler failed: {err:?}");
             }
         }
+        .in_current_span(),
+    );
 
-        let room_address = room.room_id().to_string();
+    todo!("Implement auto join");
+}
 
-        let room_id = match RoomRecord::fetch_id(&db, &room_address).await {
-            Ok(Some(id)) => id,
-            Ok(None) => match RoomRecord::insert_from_matrix(room, &db).await {
-                Ok(room) => room.id,
-                Err(err) => {
-                    error!(
-                        "Failed to insert room record for room {} ({err:?})",
-                        room_address
-                    );
-                    return;
-                }
-            },
-            Err(err) => {
-                error!(
-                    "Failed to fetch room record for room {} ({err:?})",
-                    room.room_id()
-                );
+pub async fn handle_auto_join(db: Arc<Surreal<SurrealClient>>, room: &Room) -> Result<()> {
+    info!("Autojoining room {}", room.room_id());
+    let mut delay = 2;
 
-                return;
-            }
-        };
-
-        info!(
-            "Successfully joined room {}, id: {}",
-            room_address,
-            room_id.to_sql()
+    while let Err(err) = room.join().await {
+        error!(
+            "Failed to join room {} ({err:?}), retrying in {delay}s",
+            room.room_id()
         );
-    });
 
-    Ok(())
+        sleep(Duration::from_secs(delay)).await;
+        delay *= 2;
+
+        if delay > 3600 {
+            error!("Can't join room {} ({err:?})", room.room_id());
+            break;
+        }
+    }
+
+    let room_address = room.room_id().to_string();
+
+    let room_id = match RoomRecord::fetch_id(&db, &room_address).await? {
+        Some(id) => id,
+        None => RoomRecord::insert_from_matrix(room.clone(), &db)
+            .await?
+            .id()?,
+    };
+
+    info!(
+        "Successfully joined room {}, id: {}",
+        room_address,
+        room_id.to_sql()
+    );
+
+    return Ok(());
 }

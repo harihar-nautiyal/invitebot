@@ -1,20 +1,15 @@
+#![recursion_limit = "512"]
+
 use dotenv::dotenv;
+use invitebot::bot::sync;
 use invitebot::db::migration::start;
 use invitebot::env::*;
-use invitebot::handlers::auto_join::listen as invite_listener;
-use invitebot::handlers::message::listen as message_listener;
-use matrix_sdk::Client;
-use matrix_sdk::config::SyncSettings;
-use matrix_sdk::ruma::UserId;
-use matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent;
-use matrix_sdk::{Room, ruma::events::room::member::StrippedRoomMemberEvent};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
-use tracing::error;
-use tracing::info;
 use tracing::subscriber::set_global_default;
+use tracing::{Instrument, error, info, info_span};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -57,59 +52,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Completed database migrations");
 
-    let server = SERVER.as_str();
-    let username = USERNAME.as_str();
-    let password = PASSWORD.as_str();
+    let bot_configs = vec![
+        (
+            SERVER.as_str(),
+            USERNAME.as_str(),
+            PASSWORD.as_str(),
+            "main",
+        ),
+        (
+            SCRAPER_1_SERVER.as_str(),
+            SCRAPER_1_USERNAME.as_str(),
+            SCRAPER_1_PASSWORD.as_str(),
+            "scraper-1",
+        ),
+        (
+            SCRAPER_2_SERVER.as_str(),
+            SCRAPER_2_USERNAME.as_str(),
+            SCRAPER_2_PASSWORD.as_str(),
+            "scraper-2",
+        ),
+    ];
 
-    let user_id_str = format!("@{}:{}", username, server);
-    let user = UserId::parse(&user_id_str)?;
+    let mut handles = vec![];
 
-    info!("Logging as {}", user);
+    for (server, user, pass, label) in bot_configs {
+        let db = db.clone();
+        let server = server.to_string();
+        let user_name = user.to_string();
+        let password = pass.to_string();
+        let label = label.to_string();
+        let span = info_span!("bot", id = %label);
 
-    let client = Arc::new(
-        Client::builder()
-            .server_name(user.server_name())
-            .build()
-            .await?,
-    );
+        let handle = tokio::spawn(
+            async move {
+                info!("Initializing client...");
+                if let Err(e) = sync(server, user_name, password, db, label.clone()).await {
+                    error!("Critical failure: {}", e);
+                }
+            }
+            .instrument(span),
+        );
+        handles.push(handle);
+    }
 
-    client
-        .matrix_auth()
-        .login_username(&username, &password)
-        .send()
-        .await?;
-
-    info!("Successfully logged in as {}", user);
-
-    let client_clone_for_invites = client.clone();
-    let db_clone_for_invites = db.clone();
-
-    client.add_event_handler(async move |ev: StrippedRoomMemberEvent, room: Room| {
-        if let Err(err) = invite_listener(
-            ev,
-            client_clone_for_invites.clone(),
-            room,
-            db_clone_for_invites.clone(),
-        )
-        .await
-        {
-            error!("Error handling invite: {}", err);
-        }
-    });
-
-    info!("Listening for invites");
-
-    let db_clone_for_messages = db.clone();
-
-    client.add_event_handler(async move |ev: OriginalSyncRoomMessageEvent, room: Room| {
-        if let Err(err) = message_listener(ev, room, &db_clone_for_messages).await {
-            error!("Error handling message: {}", err);
-        }
-    });
-
-    info!("Listening for commands");
-
-    client.sync(SyncSettings::default()).await?;
+    futures::future::join_all(handles).await;
 
     Ok(())
 }

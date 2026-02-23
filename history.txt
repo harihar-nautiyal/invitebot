@@ -1,0 +1,27 @@
+#V2
+remove namespace invitebot
+select * from messages
+select * from members
+use namespace invitebot
+use database invitebot
+select * from members 
+use namespace invitebot
+use database invitebot
+select * from members
+select * from members where address = "@knight:unifwe.com"
+select * from members
+use namespace invitebot
+use database invitebot
+select * from members;
+SELECT count() FROM members GROUP ALL;
+remove namespace invitebot
+use namespace invitebot
+use database invitebot
+select * from members where display_name = "prime"
+SELECT count() FROM members GROUP ALL;
+SELECT * FROM members WHERE string::similarity::fuzzy(address, 'matrix.org') > 50;
+SELECT * FROM members WHERE string::similarity::fuzzy(address, 'vfdavischat.net') > 50;
+SELECT * FROM members WHERE string::similarity::fuzzy(address, 'tenviki.dev') > 50;
+SELECT count() FROM members GROUP ALL;
+SELECT * FROM members WHERE string::similarity::fuzzy(address, 'tenviki.dev') > 50;
+SELECT count() FROM members GROUP ALL;

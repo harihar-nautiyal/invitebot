@@ -3,8 +3,7 @@ use crate::models::room::Room;
 use anyhow::Result;
 use anyhow::anyhow;
 use matrix_sdk::{Room as MatrixRoom, RoomMemberships};
-use nanoid::nanoid;
-use surrealdb::types::{Datetime, RecordId, Uuid};
+use surrealdb::types::{Datetime, RecordId};
 use surrealdb::{Surreal, engine::remote::ws::Client};
 use tracing::error;
 
@@ -17,7 +16,7 @@ impl Room {
         description: String,
     ) -> Self {
         Self {
-            id: RecordId::new("rooms", nanoid!()),
+            id: None,
             address,
             founder,
             members,
@@ -29,6 +28,10 @@ impl Room {
         }
     }
 
+    pub fn id(&self) -> Result<RecordId> {
+        self.id.clone().ok_or(anyhow!("Member ID not set"))
+    }
+
     pub async fn fetch(db: &Surreal<Client>, id: RecordId) -> Result<()> {
         db.query("SELECT * FROM rooms WHERE id = $id")
             .bind(("id", id.clone()))
@@ -37,12 +40,19 @@ impl Room {
         Ok(())
     }
 
-    pub async fn insert(&self, db: &Surreal<Client>) -> Result<()> {
-        db.query("CREATE rooms CONTENT $room")
+    pub async fn insert(&self, db: &Surreal<Client>) -> Result<Self> {
+        let mut res = db
+            .query("CREATE rooms CONTENT $room")
             .bind(("room", self.clone()))
             .await?;
 
-        Ok(())
+        let mut rooms: Vec<Self> = res.take(0)?;
+        let room = rooms.pop();
+
+        match room {
+            Some(room) => Ok(room),
+            None => Err(anyhow!("Failed to insert room: {}", self.address.clone())),
+        }
     }
 
     pub async fn update(&self, db: &Surreal<Client>) -> Result<()> {
@@ -74,26 +84,37 @@ impl Room {
         let title = room.name().unwrap_or_else(|| "".to_string());
         let description = room.topic().unwrap_or_else(|| "".to_string());
 
-        let members = room.members(RoomMemberships::empty()).await?;
-
+        let members = room.members(RoomMemberships::JOIN).await?;
         let mut member_records: Vec<RecordId> = Vec::new();
 
         for member in members {
+            let display_name = member.display_name().map(|name| name.to_string());
             let address = member.user_id().to_string();
 
-            match Member::fetch_id(db, &address).await {
-                Ok(Some(id)) => {
-                    member_records.push(id);
-                }
-                Ok(None) => {
-                    let display_name = member.display_name().map(|name| name.to_string());
-                    let member = Member::new(address, display_name);
-                    member.insert(db).await?;
-                    member_records.push(member.id);
+            match Member::fetch_or_create(db, address, display_name).await {
+                Ok(member_rec) => {
+                    member_records.push(member_rec.id.unwrap());
                 }
                 Err(err) => {
-                    error!("Failed to fetch member record: {}", err);
+                    error!("Failed to fetch or create the member record: {}", err);
+                    continue;
+                }
+            };
+        }
 
+        let invited = room.members(RoomMemberships::INVITE).await?;
+        let mut invited_member_records: Vec<RecordId> = Vec::new();
+
+        for member in invited {
+            let display_name = member.display_name().map(|name| name.to_string());
+            let address = member.user_id().to_string();
+
+            match Member::fetch_or_create(db, address, display_name).await {
+                Ok(member_rec) => {
+                    invited_member_records.push(member_rec.id.unwrap());
+                }
+                Err(err) => {
+                    error!("Failed to fetch or create invited member: {}", err);
                     continue;
                 }
             };
@@ -102,38 +123,50 @@ impl Room {
         let founder_address = room
             .creators()
             .and_then(|creators| creators.into_iter().next())
-            .unwrap();
-
-        let founder = match room.get_member(&founder_address).await? {
-            Some(member) => member,
-            None => {
-                error!("Failed to fetch founder member record: {}", founder_address);
-
-                return Err(anyhow!("failed to fetch founder member record"));
-            }
-        };
+            .ok_or_else(|| anyhow!("No creator found for room"))?;
 
         let founder_id = match Member::fetch_id(db, &founder_address.to_string()).await? {
             Some(id) => id,
             None => {
-                let display_name = founder.display_name().map(|name| name.to_string());
+                let member_info = room.get_member(&founder_address).await?;
+                let display_name = member_info
+                    .as_ref()
+                    .and_then(|m| m.display_name().map(|n| n.to_string()));
                 let member = Member::new(founder_address.to_string(), display_name);
-                member.insert(db).await?;
-                member.id
+                member.insert(db).await?.id()?
             }
         };
 
-        let room_record = Self::new(
+        let mut room_record_struct = Self::new(
             room.room_id().to_string(),
             founder_id,
             member_records,
             title,
             description,
         );
+        room_record_struct.invited_members = invited_member_records;
 
-        room_record.insert(db).await?;
+        let query = r#"
+            let $existing = SELECT * FROM rooms WHERE address = $address LIMIT 1;
+            IF $existing[0].id {
+                RETURN $existing[0];
+            } ELSE {
+                CREATE rooms CONTENT $content;
+            };
+        "#;
 
-        Ok(room_record)
+        let mut res = db
+            .query(query)
+            .bind(("address", room.room_id().to_string()))
+            .bind(("content", room_record_struct))
+            .await?;
+
+        let room_record: Option<Room> = res.take(1)?;
+
+        match room_record {
+            Some(r) => Ok(r),
+            None => Err(anyhow!("Failed to insert the room: {}", room.room_id())),
+        }
     }
 
     pub async fn fetch_id(db: &Surreal<Client>, address: &String) -> Result<Option<RecordId>> {

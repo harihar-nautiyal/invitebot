@@ -5,7 +5,7 @@ use surrealdb_types::{Kind, Value as SValue};
 
 #[derive(Serialize, Deserialize, SurrealValue, Clone)]
 pub struct Call {
-    pub id: RecordId,
+    pub id: Option<RecordId>,
     pub user: RecordId,
     pub room: RecordId,
     pub event_id: String,
